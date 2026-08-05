@@ -1,0 +1,5 @@
+# Optional extra ranges explicitly tagged as "other" known ISPs.
+# IPs not matching irancell.cidr or mci.cidr are already classified as other.
+# Example placeholders (Shatel / TIC style ranges) — expand as needed.
+# 79.175.128.0/17
+# 81.31.160.0/19

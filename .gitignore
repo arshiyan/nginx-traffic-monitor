@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Backups / local overrides
+*.bak
+config/local.conf
+/tmp/
+
+# Export artifacts
+reports/
+*.html
+!docs/**
+
+# Shellcheck
+shellcheck_*.txt

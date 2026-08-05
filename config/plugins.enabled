@@ -1,0 +1,20 @@
+# Plugin enable map (1=enabled, 0=disabled)
+# Missing keys fall back to PLUGIN_ENABLED in plugin.conf
+
+install_verify=1
+report_24h=1
+report_today=1
+report_yesterday=1
+report_7d=1
+report_30d=1
+log_size=1
+top_urls=1
+top_ips=1
+status_codes=1
+isp_asn=1
+export=1
+live=1
+reset=1
+verify=1
+uninstall=1
+hello_world=0

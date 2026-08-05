@@ -1,0 +1,16 @@
+2026-08-05T08:15:01+03:30 5.120.10.22 example.com 200 GET "/index.html" 4521
+2026-08-05T08:15:02+03:30 2.176.20.5 example.com 200 GET "/api/v1/status" 812
+2026-08-05T08:15:03+03:30 8.8.8.8 example.com 404 GET "/missing" 312
+2026-08-05T09:01:11+03:30 151.232.4.88 cdn.example.com 200 GET "/assets/app.js" 102400
+2026-08-05T09:01:12+03:30 37.254.9.3 example.com 200 GET "/assets/app.js" 102400
+2026-08-05T10:22:00+03:30 46.100.1.9 example.com 200 POST "/api/v1/login" 2048
+2026-08-05T10:22:05+03:30 46.209.50.1 example.com 401 POST "/api/v1/login" 512
+2026-08-05T11:00:00+03:30 1.1.1.1 example.com 200 GET "/robots.txt" 120
+2026-08-05T12:30:45+03:30 5.232.8.8 shop.example.com 200 GET "/products/1" 8192
+2026-08-05T13:10:10+03:30 80.191.3.3 shop.example.com 200 GET "/products/2" 9000
+2026-08-04T18:40:00+03:30 5.120.99.1 example.com 200 GET "/blog/hello" 5600
+2026-08-04T19:05:22+03:30 2.184.1.50 example.com 302 GET "/redirect" 0
+2026-08-04T20:11:11+03:30 9.9.9.9 example.com 500 GET "/boom" 256
+2026-08-02T07:00:00+03:30 151.240.2.2 example.com 200 GET "/img/logo.png" 44500
+2026-08-02T07:05:00+03:30 31.56.10.10 example.com 200 GET "/img/hero.jpg" 220000
+2026-08-02T08:00:00+03:30 185.199.108.153 example.com 200 GET "/vendor/lib.css" 15000
