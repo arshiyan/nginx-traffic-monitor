@@ -2,25 +2,19 @@
 
 **Language / زبان:** [English](#nginx-traffic-monitor) · [فارسی](#nginx-traffic-monitor-فارسی)
 
-**Repository:** [github.com/arshiyan/nginx-traffic-monitor](https://github.com/arshiyan/nginx-traffic-monitor)  
-**Clone URL:** `https://github.com/arshiyan/nginx-traffic-monitor.git`
+Production-ready **Bash-only** Nginx traffic analytics for Ubuntu/Debian and aaPanel — install, report, live-monitor, and export with a plugin architecture and **zero extra runtimes**.
 
-**Production-ready Bash application** for Ubuntu/Debian that installs, manages, analyzes, and reports Nginx traffic — with a **scalable plugin architecture** and **zero external runtimes**.
+No Python · No PHP · No Node · No jq · No database — only `bash`, `awk`, `grep`, `sed`, and standard Unix tools.
 
-No Python. No PHP. No Node.js. No jq. No SQLite/MySQL.
-
-Only: `bash`, `awk`, `grep`, `sed`, `find`, `cut`, `sort`, `uniq`, `stat`, `tail`, `wc`, `date`.
-
-[![ShellCheck](https://img.shields.io/badge/shellcheck-friendly-brightgreen)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian-orange)](#supported-linux-distributions)
-[![GitHub](https://img.shields.io/badge/GitHub-arshiyan%2Fnginx--traffic--monitor-blue?logo=github)](https://github.com/arshiyan/nginx-traffic-monitor)
+[![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian%20%7C%20aaPanel-orange)](#supported-linux-distributions)
+[![Shell](https://img.shields.io/badge/runtime-Bash%20%2B%20awk-brightgreen)](#requirements)
+[![GitHub stars](https://img.shields.io/github/stars/arshiyan/nginx-traffic-monitor?style=social)](https://github.com/arshiyan/nginx-traffic-monitor)
+[![GitHub](https://img.shields.io/badge/repo-arshiyan%2Fnginx--traffic--monitor-24292e?logo=github)](https://github.com/arshiyan/nginx-traffic-monitor)
 
 ---
 
-## Quick install (from GitHub)
-
-Download and install directly from the git repository in one command:
+## Quick install
 
 ```bash
 git clone https://github.com/arshiyan/nginx-traffic-monitor.git \
@@ -29,51 +23,55 @@ git clone https://github.com/arshiyan/nginx-traffic-monitor.git \
   && sudo ./install.sh
 ```
 
-Then open the menu:
-
 ```bash
-sudo ./traffic-monitor.sh
+sudo ./traffic-monitor.sh          # interactive menu
+cd nginx-traffic-monitor && git pull && sudo ./install.sh --verify-only   # update
 ```
 
-Update later:
+Demo without a live log: `./traffic-monitor.sh --sample --report all`
 
-```bash
-cd nginx-traffic-monitor && git pull && sudo ./install.sh --verify-only
-```
+---
+
+## Screenshots
+
+| Menu | Today report | ISP / ASN |
+|:----:|:------------:|:---------:|
+| ![menu](docs/images/menu.png) | ![report](docs/images/report-today.png) | ![isp](docs/images/isp-asn.png) |
+
+| HTML export | Live monitor |
+|:-----------:|:------------:|
+| ![html](docs/images/export-html.png) | ![live](docs/images/live.png) |
+
+How to capture your own: [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)
 
 ---
 
 ## Project overview
 
-Nginx Traffic Monitor configures a dedicated `log_format` named `traffic`, writes structured access logs, and provides an interactive operations menu plus a non-interactive CLI for cron and automation.
+Configures a dedicated `log_format traffic`, writes structured access logs, and ships an interactive menu plus a non-interactive CLI for cron.
 
-Capabilities are delivered as **plugins** under [`plugins/`](plugins/). The core stays small; new analytics (including ISP/ASN breakdown for Iranian mobile networks) ship as drop-in modules.
+Features live as **plugins** under [`plugins/`](plugins/). The core stays small; ISP/ASN (Irancell / MCI / Other) and more ship as drop-ins.
 
 ```
 install.sh              → safe nginx wiring (backup → edit → nginx -t → reload / rollback)
 traffic-monitor.sh      → menu + CLI + plugin loader
 lib/                    → core engine
-plugins/                → features (reports, live, export, ISP/ASN, …)
+plugins/                → reports, live, export, ISP/ASN, …
 ```
 
 ---
 
 ## Features
 
-- Automatic nginx detection and `nginx.conf` discovery
-- Safe install with timestamped backups and automatic rollback on `nginx -t` failure
-- Structured traffic log (`time_iso8601`, IP, host, status, method, URI, bytes)
-- Interactive colored menu with auto terminal width
-- Period filters: today, yesterday, last 24h, 7d, 30d
-- Full reports: totals, GB/TB traffic, averages, largest URL, Top 20 URLs/IPs/statuses/hosts/extensions
-- Live per-second monitor (RPS, bandwidth estimate, last client/request, log growth)
-- Export to **TXT** and **HTML/CSS dashboards** (no JavaScript libraries)
-- Log reset via rotation (never deletes immediately)
-- Clean uninstall (restore backup / remove directives)
-- **Plugin system** with enable/disable, hooks, and CLI registration
-- **ISP/ASN plugin**: Irancell vs Hamrah-e Avval (MCI) vs Other using flat-file CIDR DB
-- Sample log for offline demos
-- Optional logrotate snippet
+| Area | What you get |
+|------|----------------|
+| Install | Auto nginx / aaPanel detection, backups, `nginx -t`, rollback |
+| Reports | Today / 24h / 7d / 30d — totals, Top URLs/IPs/status/hosts/ext |
+| ISP/ASN | Irancell · Hamrah-e Avval (MCI) · Other (flat CIDR files) |
+| Live | RPS, bandwidth estimate, last client/URI, log growth |
+| Export | TXT + pure HTML/CSS dashboard (no JS libraries) |
+| Ops | Log rotate reset, verify, clean uninstall, sample log, logrotate snippet |
+| Extensibility | Plugin enable/disable, hooks, CLI registration |
 
 ---
 
@@ -127,6 +125,15 @@ Verify only:
 ```bash
 sudo ./install.sh --verify-only
 ```
+
+Confirm traffic is being written (after a real HTTP hit):
+
+```bash
+sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'
+sudo tail -f /var/log/nginx/traffic.log
+```
+
+If the log stays empty, re-run `sudo ./install.sh` (installer now adds http-level `access_log` and patches server blocks that already define their own `access_log`).
 
 ---
 
@@ -243,16 +250,6 @@ Highlights:
 
 ---
 
-## Screenshots
-
-> Placeholders — replace with real captures (see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)).
-
-| Menu | Report | ISP ASN | HTML Export | Live |
-|------|--------|---------|-------------|------|
-| ![menu](docs/images/menu.png) | ![report](docs/images/report-today.png) | ![isp](docs/images/isp-asn.png) | ![html](docs/images/export-html.png) | ![live](docs/images/live.png) |
-
----
-
 ## Log format
 
 ```nginx
@@ -307,10 +304,11 @@ Yes. Pure HTML/CSS, no CDN JavaScript.
 
 | Symptom | Fix |
 |---------|-----|
+| `/usr/bin/env: 'bash\r': No such file or directory` | Windows CRLF line endings. Fix: `find . -type f \( -name '*.sh' -o -name '*.awk' -o -name '*.conf' \) -exec sed -i 's/\r$//' {} +` then re-run. Prefer `git clone` on the Linux host (do not SCP a Windows working tree). |
 | `nginx binary not found` | Install nginx or set `NTM_NGINX_BIN` |
-| `nginx.conf not found` | Set `NTM_NGINX_CONF=/path/to/nginx.conf` |
+| `nginx.conf not found` | Installer searches `-V`/`-t`/common paths/`find` under `/etc` `/usr/local` `/opt` `/www`. If still missing, set `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | `nginx -t` failed during install | Backup restored automatically; inspect the error from `nginx -t` |
-| Empty reports | Confirm traffic is hitting a server block with the traffic `access_log`; wait for requests |
+| Empty reports / empty `traffic.log` | Logging not attached or not writable. Re-run `sudo ./install.sh` (drop-in `conf.d/00-nginx-traffic-monitor.conf` + `access_log` at end of every `server{}`). Diagnose: `sudo wc -l /var/log/nginx/traffic.log`; `sudo nginx -T 2>/dev/null \| grep -E 'log_format traffic\|traffic.log'`; `sudo tail -f /var/log/nginx/traffic.log` while hitting the site; `sudo tail -n 50 /var/log/nginx/error.log`. |
 | Permission denied on log | Run with sudo or grant read on `/var/log/nginx/traffic.log` |
 | ISP all “other” | Update `*.cidr` seeds; verify client IPs are not CDN egress |
 | Plugin missing from menu | `./traffic-monitor.sh --plugins list` and enable it |
@@ -328,8 +326,9 @@ Doctor command:
 - Ubuntu 20.04 / 22.04 / 24.04
 - Debian 11 / 12
 - Compatible derivatives (Linux Mint, Pop!_OS, etc.) with standard nginx packages
+- **aaPanel / BT Panel** (`/www/server/nginx`) — auto-detected via running master process and panel vhost includes
 
-Designed for POSIX-friendly Bash on systemd hosts. Other distros may work if nginx paths are set explicitly.
+Designed for POSIX-friendly Bash on systemd hosts. Other distros may work if nginx paths are set explicitly (`NTM_NGINX_BIN`, `NTM_NGINX_CONF`).
 
 ---
 
@@ -377,20 +376,16 @@ MIT — see [LICENSE](LICENSE).
 
 **زبان / Language:** [English](#nginx-traffic-monitor) · [فارسی](#nginx-traffic-monitor-فارسی)
 
-**ریپوزیتوری:** [github.com/arshiyan/nginx-traffic-monitor](https://github.com/arshiyan/nginx-traffic-monitor)  
-**آدرس کلون:** `https://github.com/arshiyan/nginx-traffic-monitor.git`
+تحلیل ترافیک Nginx با **Bash خالص** برای Ubuntu/Debian و aaPanel — نصب، گزارش، مانیتور زنده و خروجی HTML با معماری پلاگین و **بدون وابستگی اضافه**.
 
-ابزار **آمادهٔ production** با Bash خالص برای سرورهای Ubuntu/Debian که ترافیک Nginx را نصب، مدیریت، تحلیل و گزارش می‌کند — با معماری **پلاگین‌محور** و **بدون وابستگی خارجی**.
+بدون Python / PHP / Node / jq / دیتابیس — فقط ابزارهای استاندارد یونیکس.
 
-بدون Python، PHP، Node.js، jq، SQLite یا MySQL.
-
-فقط ابزارهای استاندارد: `bash`, `awk`, `grep`, `sed`, `find`, `cut`, `sort`, `uniq`, `stat`, `tail`, `wc`, `date`.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/repo-arshiyan%2Fnginx--traffic--monitor-24292e?logo=github)](https://github.com/arshiyan/nginx-traffic-monitor)
 
 ---
 
-## نصب سریع از GitHub
-
-دانلود و نصب مستقیم از لینک git با یک دستور:
+## نصب سریع
 
 ```bash
 git clone https://github.com/arshiyan/nginx-traffic-monitor.git \
@@ -399,51 +394,53 @@ git clone https://github.com/arshiyan/nginx-traffic-monitor.git \
   && sudo ./install.sh
 ```
 
-سپس منوی تعاملی:
-
 ```bash
 sudo ./traffic-monitor.sh
-```
-
-به‌روزرسانی بعدی:
-
-```bash
 cd nginx-traffic-monitor && git pull && sudo ./install.sh --verify-only
 ```
+
+دمو بدون لاگ واقعی: `./traffic-monitor.sh --sample --report all`
+
+---
+
+## اسکرین‌شات‌ها
+
+| منو | گزارش امروز | تفکیک ISP |
+|:---:|:-----------:|:---------:|
+| ![menu](docs/images/menu.png) | ![report](docs/images/report-today.png) | ![isp](docs/images/isp-asn.png) |
+
+| خروجی HTML | مانیتور زنده |
+|:----------:|:------------:|
+| ![html](docs/images/export-html.png) | ![live](docs/images/live.png) |
 
 ---
 
 ## معرفی پروژه
 
-این برنامه یک `log_format` به نام `traffic` روی Nginx تنظیم می‌کند، لاگ ساخت‌یافته می‌نویسد و منوی عملیاتی به‌همراه CLI غیرتعاملی (مناسب cron) ارائه می‌دهد.
+`log_format traffic` را روی Nginx تنظیم می‌کند، لاگ ساخت‌یافته می‌نویسد و منوی عملیاتی + CLI (مناسب cron) ارائه می‌دهد.
 
-قابلیت‌ها به‌صورت **پلاگین** در پوشه [`plugins/`](plugins/) هستند. هسته کوچک می‌ماند و تحلیل‌های جدید (از جمله تفکیک ISP ایرانسل / همراه‌اول) به‌صورت ماژول اضافه می‌شوند.
+قابلیت‌ها به‌صورت **پلاگین** در [`plugins/`](plugins/) هستند؛ هسته کوچک می‌ماند.
 
 ```
 install.sh              → اتصال ایمن به nginx (بکاپ → ویرایش → nginx -t → reload / rollback)
 traffic-monitor.sh      → منو + CLI + بارگذاری پلاگین
 lib/                    → موتور هسته
-plugins/                → قابلیت‌ها (گزارش، live، export، ISP/ASN و …)
+plugins/                → گزارش، live، export، ISP/ASN و …
 ```
 
 ---
 
 ## ویژگی‌ها
 
-- تشخیص خودکار nginx و مسیر `nginx.conf`
-- نصب امن با بکاپ زمان‌دار و rollback خودکار در صورت شکست `nginx -t`
-- لاگ ساخت‌یافته ترافیک (`time_iso8601`، IP، host، status، method، URI، حجم)
-- منوی رنگی تعاملی با تشخیص عرض ترمینال
-- فیلتر زمانی: امروز، دیروز، ۲۴ ساعت، ۷ روز، ۳۰ روز
-- گزارش کامل: مجموع درخواست، ترافیک GB/TB، میانگین، بزرگ‌ترین URL، Top 20
-- مانیتور زنده (RPS، پهنای باند تخمینی، آخرین کلاینت/درخواست، رشد لاگ)
-- خروجی **TXT** و داشبورد **HTML/CSS** (بدون کتابخانه JavaScript)
-- ریست لاگ با rotate (حذف فوری انجام نمی‌شود)
-- حذف نصب تمیز (بازیابی بکاپ / حذف directiveها)
-- **سیستم پلاگین** با enable/disable و هوک
-- **پلاگین ISP/ASN**: ایرانسل، همراه‌اول (MCI)، سایر — با دیتابیس فایلی CIDR
-- لاگ نمونه برای دمو آفلاین
-- نمونه logrotate
+| حوزه | قابلیت |
+|------|--------|
+| نصب | تشخیص nginx / aaPanel، بکاپ، `nginx -t`، rollback |
+| گزارش | امروز / ۲۴س / ۷روز / ۳۰روز — مجموع و Topها |
+| ISP/ASN | ایرانسل · همراه‌اول (MCI) · سایر (فایل CIDR) |
+| زنده | RPS، پهنای باند، آخرین کلاینت/URI |
+| خروجی | TXT + داشبورد HTML/CSS خالص |
+| عملیات | ریست با rotate، verify، uninstall تمیز، لاگ نمونه |
+| توسعه | enable/disable پلاگین، هوک، ثبت CLI |
 
 ---
 
@@ -497,6 +494,15 @@ sudo ./install.sh
 ```bash
 sudo ./install.sh --verify-only
 ```
+
+اطمینان از ثبت ترافیک (بعد از یک درخواست واقعی HTTP):
+
+```bash
+sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'
+sudo tail -f /var/log/nginx/traffic.log
+```
+
+اگر لاگ خالی ماند، دوباره `sudo ./install.sh` را اجرا کنید (نصب‌کننده الان `access_log` را در سطح `http` و روی serverهایی که خودشان access_log دارند اضافه می‌کند).
 
 ---
 
@@ -663,10 +669,11 @@ CIDRها را در `plugins/43-isp-asn/data/` بگذارید و matcher را گ�
 
 | مشکل | راه حل |
 |------|--------|
+| `/usr/bin/env: 'bash\r': No such file or directory` | پایان‌خط CRLF ویندوزی. رفع فوری: `find . -type f \( -name '*.sh' -o -name '*.awk' -o -name '*.conf' \) -exec sed -i 's/\r$//' {} +` سپس دوباره اجرا کنید. ترجیحاً روی خود لینوکس `git clone` کنید (پوشه ویندوز را SCP نکنید). |
 | `nginx binary not found` | nginx را نصب کنید یا `NTM_NGINX_BIN` را تنظیم کنید |
-| `nginx.conf not found` | `NTM_NGINX_CONF=/path/to/nginx.conf` |
+| `nginx.conf not found` | installer از `-V`/`-t`/مسیرهای رایج/`find` زیر `/etc` `/usr/local` `/opt` `/www` جستجو می‌کند. اگر پیدا نشد: `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | شکست `nginx -t` هنگام نصب | بکاپ خودکار بازگردانی شده؛ خروجی `nginx -t` را ببینید |
-| گزارش خالی | مطمئن شوید درخواست‌ها به server block دارای `access_log` ترافیک می‌رسند |
+| گزارش خالی / `traffic.log` خالی | لاگ وصل نشده یا قابل نوشتن نیست. دوباره `sudo ./install.sh` (drop-in در conf.d + access_log انتهای هر server{}). تشخیص: `sudo wc -l /var/log/nginx/traffic.log`؛ `sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'`؛ هنگام hit: `sudo tail -f /var/log/nginx/traffic.log`؛ `sudo tail -n 50 /var/log/nginx/error.log` |
 | Permission denied روی لاگ | با sudo اجرا کنید یا دسترسی خواندن بدهید |
 | همه ISPها «سایر» | فایل‌های `*.cidr` را به‌روز کنید؛ IP ممکن است CDN باشد |
 | پلاگین در منو نیست | `./traffic-monitor.sh --plugins list` و enable کنید |
@@ -682,6 +689,9 @@ CIDRها را در `plugins/43-isp-asn/data/` بگذارید و matcher را گ�
 - Ubuntu 20.04 / 22.04 / 24.04
 - Debian 11 / 12
 - مشتقات سازگار با پکیج استاندارد nginx
+- **aaPanel / BT Panel** (`/www/server/nginx`) — تشخیص خودکار از پروسس master و includeهای vhost پنل
+
+در صورت نیاز: `NTM_NGINX_BIN` و `NTM_NGINX_CONF` را دستی تنظیم کنید.
 
 ---
 

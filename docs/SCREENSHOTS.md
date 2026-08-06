@@ -1,23 +1,20 @@
 # Screenshots
 
-Add terminal and HTML dashboard screenshots here for the GitHub README.
+Demo captures committed under `docs/images/` (generated from `--sample` CLI output and the HTML export dashboard).
 
-Suggested captures:
+| File | Content |
+|------|---------|
+| `menu.png` | Interactive main menu |
+| `report-today.png` | Today / metrics report |
+| `isp-asn.png` | Irancell / MCI / Other breakdown |
+| `export-html.png` | Pure HTML/CSS export dashboard |
+| `live.png` | Live monitor (RPS, bandwidth, last request) |
 
-1. **Main menu** — `./traffic-monitor.sh`
-2. **Today report** — menu item 3 or `--today`
-3. **ISP / ASN breakdown** — menu item 11 or `--isp-report`
-4. **HTML export** — open the generated dashboard in a browser
-5. **Live monitor** — menu item 13 or `--live`
+Regenerate locally after changing sample data or export styling:
 
-Placeholder paths:
-
+```bash
+./traffic-monitor.sh --sample --report all
+./traffic-monitor.sh --sample --isp-report --period all
+./traffic-monitor.sh --sample --export html --period all --out /tmp/ntm-dashboard.html
+# open the HTML file in a browser and capture; or re-render terminal shots for README
 ```
-docs/images/menu.png
-docs/images/report-today.png
-docs/images/isp-asn.png
-docs/images/export-html.png
-docs/images/live.png
-```
-
-Until real images are committed, the README links to these placeholders.
