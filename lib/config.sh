@@ -25,7 +25,7 @@ ntm_load_config() {
   : "${NTM_APP_VERSION:=1.0.0}"
   : "${NTM_TRAFFIC_LOG:=/var/log/nginx/traffic.log}"
   : "${NTM_BACKUP_DIR:=/var/backups/nginx-traffic-monitor}"
-  : "${NTM_LOG_FORMAT_NAME:=traffic}"
+  : "${NTM_LOG_FORMAT_NAME:=ntm_traffic}"
   : "${NTM_TOP_N:=20}"
   : "${NTM_EXPORT_DIR:=/tmp/nginx-traffic-monitor}"
   : "${NTM_SAMPLE_LOG:=samples/traffic.log.sample}"

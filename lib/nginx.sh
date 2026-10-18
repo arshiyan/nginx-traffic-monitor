@@ -188,6 +188,99 @@ ntm_rollback_nginx_conf() {
   ntm_ok "Restored nginx.conf from $backup → $conf"
 }
 
+# Session file list for per-vhost / drop-in rollback during one install run
+ntm_session_dir() {
+  printf '%s' "${NTM_BACKUP_DIR}/session"
+}
+
+ntm_session_begin() {
+  local dir
+  dir="$(ntm_session_dir)"
+  rm -rf "$dir"
+  mkdir -p "$dir/files"
+  : >"${dir}/MANIFEST"
+  : >"${dir}/CREATED"
+  printf '%s\n' "$(ntm_timestamp)" >"${dir}/TS"
+}
+
+# Backup an existing file before mutation; record orig|backup in MANIFEST
+ntm_backup_file_for_rollback() {
+  local path="$1"
+  local dir ts safe dest
+  [ -f "$path" ] || return 0
+  dir="$(ntm_session_dir)"
+  mkdir -p "$dir/files"
+  ts="$(cat "${dir}/TS" 2>/dev/null || ntm_timestamp)"
+  safe="$(printf '%s' "$path" | sed 's|/|_|g')"
+  dest="${dir}/files/${ts}${safe}"
+  if [ -f "$dest" ]; then
+    return 0
+  fi
+  cp -a "$path" "$dest"
+  printf '%s|%s\n' "$path" "$dest" >>"${dir}/MANIFEST"
+}
+
+# Record a file we created this session (remove on rollback)
+ntm_session_mark_created() {
+  local path="$1"
+  local dir
+  dir="$(ntm_session_dir)"
+  mkdir -p "$dir"
+  printf '%s\n' "$path" >>"${dir}/CREATED"
+}
+
+ntm_remove_managed_dropin() {
+  local main dropin
+  main="$(ntm_detect_nginx_conf 2>/dev/null || true)"
+  if [ -f "${NTM_BACKUP_DIR}/DROPIN" ]; then
+    dropin="$(cat "${NTM_BACKUP_DIR}/DROPIN")"
+    if [ -n "$dropin" ] && [ -f "$dropin" ]; then
+      rm -f "$dropin"
+      ntm_ok "Removed drop-in $dropin"
+    fi
+  fi
+  if [ -n "$main" ]; then
+    rm -f "$(dirname "$main")/conf.d/00-nginx-traffic-monitor.conf" 2>/dev/null || true
+    rm -f "$(dirname "$main")/http.d/00-nginx-traffic-monitor.conf" 2>/dev/null || true
+  fi
+  rm -f /www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf 2>/dev/null || true
+}
+
+# Full install-session rollback: main conf + mutated files + created drop-in
+ntm_rollback_install_session() {
+  local dir line orig bak created
+  dir="$(ntm_session_dir)"
+
+  ntm_rollback_nginx_conf || true
+
+  if [ -f "${dir}/MANIFEST" ]; then
+    while IFS='|' read -r orig bak; do
+      [ -z "$orig" ] && continue
+      [ -f "$bak" ] || continue
+      cp -a "$bak" "$orig"
+      ntm_ok "Restored $orig"
+    done <"${dir}/MANIFEST"
+  fi
+
+  if [ -f "${dir}/CREATED" ]; then
+    while IFS= read -r created; do
+      [ -z "$created" ] && continue
+      if [ -f "$created" ]; then
+        rm -f "$created"
+        ntm_ok "Removed created file $created"
+      fi
+    done <"${dir}/CREATED"
+  fi
+
+  ntm_remove_managed_dropin || true
+
+  if ntm_nginx_test >/dev/null 2>&1; then
+    ntm_ok "Post-rollback nginx -t passed"
+  else
+    ntm_warn "Post-rollback nginx -t still failing — inspect configs manually"
+  fi
+}
+
 ntm_nginx_test() {
   local bin conf
   bin="$(ntm_detect_nginx_bin)" || return 1
@@ -213,9 +306,51 @@ ntm_nginx_reload() {
   fi
 }
 
-# Ensure log_format traffic exists in http {} block of main conf
+# Resolve preferred drop-in path (included inside http {}), or empty if none
+ntm_resolve_dropin_path() {
+  local main conf_dir
+  main="$(ntm_detect_nginx_conf 2>/dev/null)" || return 1
+  conf_dir="$(dirname "$main")"
+  if [ -d /www/server/panel/vhost/nginx ]; then
+    printf '%s\n' "/www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf"
+  elif [ -d "${conf_dir}/conf.d" ]; then
+    printf '%s\n' "${conf_dir}/conf.d/00-nginx-traffic-monitor.conf"
+  elif [ -d "${conf_dir}/http.d" ]; then
+    printf '%s\n' "${conf_dir}/http.d/00-nginx-traffic-monitor.conf"
+  else
+    return 1
+  fi
+}
+
+# True if log_format NAME exists outside our managed drop-in file
+ntm_log_format_defined() {
+  local name="${1:-$NTM_LOG_FORMAT_NAME}"
+  local dropin main conf_dir f
+  dropin="$(ntm_resolve_dropin_path 2>/dev/null || true)"
+  main="$(ntm_detect_nginx_conf 2>/dev/null || true)"
+  [ -n "$main" ] || return 1
+  conf_dir="$(dirname "$main")"
+
+  for f in "$main" \
+    "${conf_dir}/sites-enabled"/* \
+    "${conf_dir}/sites-available"/* \
+    "${conf_dir}/conf.d"/* \
+    "${conf_dir}/http.d"/* \
+    /www/server/panel/vhost/nginx/*
+  do
+    [ -f "$f" ] || continue
+    if [ -n "$dropin" ] && [ "$f" = "$dropin" ]; then
+      continue
+    fi
+    if grep -Eq "log_format[[:space:]]+${name}[[:space:]]+" "$f" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Ensure log_format in main conf only when no drop-in directory exists.
 # Supports both `http {` and aaPanel-style `http` + `{` on next line.
-# Prefer drop-in (ntm_ensure_dropin_conf) — only mutate main conf when no drop-in dir exists.
 ntm_ensure_log_format() {
   local conf="$1"
   local name="${NTM_LOG_FORMAT_NAME}"
@@ -230,6 +365,8 @@ ntm_ensure_log_format() {
     ntm_info "log_format ${name} already present in $conf"
     return 0
   fi
+
+  ntm_backup_file_for_rollback "$conf"
 
   local tmp
   tmp="$(mktemp 2>/dev/null || echo "/tmp/ntm-nginx.$$")"
@@ -267,27 +404,11 @@ ntm_ensure_log_format() {
   ntm_ok "Inserted log_format ${name} into $conf"
 }
 
-# Resolve preferred drop-in path (included inside http {}), or empty if none
-ntm_resolve_dropin_path() {
-  local main conf_dir
-  main="$(ntm_detect_nginx_conf 2>/dev/null)" || return 1
-  conf_dir="$(dirname "$main")"
-  if [ -d /www/server/panel/vhost/nginx ]; then
-    printf '%s\n' "/www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf"
-  elif [ -d "${conf_dir}/conf.d" ]; then
-    printf '%s\n' "${conf_dir}/conf.d/00-nginx-traffic-monitor.conf"
-  elif [ -d "${conf_dir}/http.d" ]; then
-    printf '%s\n' "${conf_dir}/http.d/00-nginx-traffic-monitor.conf"
-  else
-    return 1
-  fi
-}
-
 # Prefer a drop-in file included by http {} (conf.d, http.d, or aaPanel vhost dir).
-# Writes log_format THEN access_log in the same file so directive order is always valid
-# (never place access_log before include conf.d/*.conf in main nginx.conf).
+# Writes log_format only if not already defined elsewhere; always ensures access_log.
+# Order inside drop-in is always: log_format (optional) then access_log.
 ntm_ensure_dropin_conf() {
-  local dropin name body log_path
+  local dropin name body log_path existed=0
   name="${NTM_LOG_FORMAT_NAME}"
   body="${NTM_LOG_FORMAT_BODY}"
   log_path="${NTM_TRAFFIC_LOG}"
@@ -298,14 +419,33 @@ ntm_ensure_dropin_conf() {
     return 1
   fi
 
-  cat >"$dropin" <<EOF
-# Managed by Nginx Traffic Monitor — do not edit by hand
-log_format ${name} ${body};
-access_log ${log_path} ${name};
-EOF
-  ntm_ok "Wrote drop-in config: $dropin"
   mkdir -p "$NTM_BACKUP_DIR" 2>/dev/null || true
+  mkdir -p "$(dirname "$dropin")" 2>/dev/null || true
+
+  if [ -f "$dropin" ]; then
+    existed=1
+    ntm_backup_file_for_rollback "$dropin"
+  else
+    ntm_session_mark_created "$dropin"
+  fi
+
+  {
+    echo "# Managed by Nginx Traffic Monitor — do not edit by hand"
+    if ntm_log_format_defined "$name"; then
+      echo "# log_format ${name} already defined elsewhere — not redeclared (avoids duplicate)"
+      ntm_info "log_format ${name} already defined outside drop-in — writing access_log only"
+    else
+      echo "log_format ${name} ${body};"
+    fi
+    echo "access_log ${log_path} ${name};"
+  } >"$dropin"
+
   printf '%s\n' "$dropin" >"${NTM_BACKUP_DIR}/DROPIN" 2>/dev/null || true
+  if [ "$existed" -eq 1 ]; then
+    ntm_ok "Updated drop-in config: $dropin"
+  else
+    ntm_ok "Wrote drop-in config: $dropin"
+  fi
   return 0
 }
 
@@ -331,6 +471,8 @@ ntm_ensure_http_access_log() {
     ntm_warn "Cannot insert http-level access_log: log_format ${name} missing in $conf"
     return 1
   fi
+
+  ntm_backup_file_for_rollback "$conf"
 
   local tmp
   tmp="$(mktemp 2>/dev/null || echo "/tmp/ntm-http-access.$$")"
@@ -395,7 +537,8 @@ ntm_collect_site_files() {
   fi
 }
 
-# Patch one file: add traffic access_log after an existing real access_log (.log), else end of server
+# Patch one file: add traffic access_log after an existing real access_log (.log), else end of server.
+# Idempotent: skips if access_log to NTM_TRAFFIC_LOG already present (any format name).
 ntm_patch_file_access_log() {
   local f="$1"
   local log_path="${NTM_TRAFFIC_LOG}"
@@ -406,6 +549,8 @@ ntm_patch_file_access_log() {
   if grep -Eq "access_log[[:space:]]+${log_path}([[:space:]]|;)" "$f"; then
     return 0
   fi
+
+  ntm_backup_file_for_rollback "$f"
 
   tmp="$(mktemp 2>/dev/null || echo "/tmp/ntm-access.$$")"
   awk -v log_path="$log_path" -v name="$name" '
@@ -418,16 +563,12 @@ ntm_patch_file_access_log() {
         done=1
       }
     }
-    END {
-      # If no real access_log line found, leave file unchanged (done==0)
-    }
   ' "$f" >"$tmp"
 
   local patched_count=0
   patched_count="$(grep -c "access_log ${log_path} ${name}" "$tmp" 2>/dev/null || true)"
   patched_count="${patched_count:-0}"
   if [ "$patched_count" -eq 0 ]; then
-    # Fallback: before last lone } in file
     awk -v log_path="$log_path" -v name="$name" '
       { lines[++n]=$0 }
       END {
@@ -474,7 +615,6 @@ ntm_ensure_access_logs() {
     esac
     seen="${seen}|${f}|"
 
-    # Must look like a vhost (listen or server_name) or contain server {
     if ! grep -Eq 'server[[:space:]]*\{|^[[:space:]]*server[[:space:]]*$|listen[[:space:]]|server_name[[:space:]]' "$f"; then
       continue
     fi
@@ -494,7 +634,7 @@ EOF
 
   if [ "$modified" -eq 0 ]; then
     if [ "$used_dropin" -eq 1 ]; then
-      ntm_info "No per-server access_log file changes (http-level covered by drop-in)"
+      ntm_info "No per-server access_log file changes (http-level covered by drop-in and/or already present)"
     else
       ntm_info "No per-server access_log file changes (may already be configured)"
     fi
@@ -566,22 +706,12 @@ ntm_ensure_traffic_log_file() {
 
 # Remove traffic log_format and access_log lines (best-effort; prefer backup restore)
 ntm_remove_traffic_directives() {
-  local conf main
+  local main
   main="$(ntm_detect_nginx_conf)" || return 1
   local log_path="${NTM_TRAFFIC_LOG}"
   local name="${NTM_LOG_FORMAT_NAME}"
 
-  if [ -f "${NTM_BACKUP_DIR}/DROPIN" ]; then
-    local dropin
-    dropin="$(cat "${NTM_BACKUP_DIR}/DROPIN")"
-    if [ -n "$dropin" ] && [ -f "$dropin" ]; then
-      rm -f "$dropin"
-      ntm_ok "Removed drop-in $dropin"
-    fi
-  fi
-  rm -f "$(dirname "$main")/conf.d/00-nginx-traffic-monitor.conf" 2>/dev/null || true
-  rm -f "$(dirname "$main")/http.d/00-nginx-traffic-monitor.conf" 2>/dev/null || true
-  rm -f /www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf 2>/dev/null || true
+  ntm_remove_managed_dropin
 
   local f
   for f in "$main" \
@@ -601,7 +731,7 @@ ntm_remove_traffic_directives() {
   done
 }
 
-# Full install / verify path
+# Full install / verify path — preflight, session backups, full rollback on failure
 ntm_install_traffic_logging() {
   ntm_require_root || return 1
 
@@ -621,21 +751,34 @@ ntm_install_traffic_logging() {
 
   ntm_info "nginx binary: $bin"
   ntm_info "nginx.conf:   $conf"
+  ntm_info "log_format:   ${NTM_LOG_FORMAT_NAME}"
 
+  # Preflight: refuse to mutate a broken baseline
+  if ! ntm_nginx_test >/dev/null 2>&1; then
+    ntm_error "Preflight nginx -t FAILED — refusing to install (fix current nginx config first)"
+    ntm_nginx_test || true
+    return 1
+  fi
+  ntm_ok "Preflight nginx -t passed"
+
+  ntm_session_begin
   ntm_backup_nginx_conf >/dev/null || return 1
-  ntm_ensure_access_logs || return 1
+  ntm_ensure_access_logs || {
+    ntm_error "Failed while updating access logs — rolling back"
+    ntm_rollback_install_session
+    return 1
+  }
   ntm_ensure_traffic_log_file || return 1
 
   if ! ntm_nginx_test; then
-    ntm_error "nginx -t failed — rolling back"
-    ntm_rollback_nginx_conf
+    ntm_error "nginx -t failed — rolling back full install session"
+    ntm_rollback_install_session
     return 1
   fi
 
   if ! ntm_nginx_reload; then
-    ntm_error "nginx reload failed — rolling back"
-    ntm_rollback_nginx_conf
-    ntm_nginx_test >/dev/null 2>&1 || true
+    ntm_error "nginx reload failed — rolling back full install session"
+    ntm_rollback_install_session
     return 1
   fi
 
@@ -695,7 +838,7 @@ ntm_verify_installation() {
       else
         ntm_error "traffic log is EMPTY — nginx is not writing requests here"
         ntm_info "Checklist:"
-        ntm_info "  1) sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'"
+        ntm_info "  1) sudo nginx -T 2>/dev/null | grep -E 'log_format ntm_traffic|traffic.log'"
         ntm_info "  2) Re-run: sudo ./install.sh"
         ntm_info "  3) Hit the site, then: sudo tail -f $NTM_TRAFFIC_LOG"
         ntm_info "  4) Check permissions for worker user '${worker}': ls -la $NTM_TRAFFIC_LOG"
@@ -733,8 +876,8 @@ ntm_uninstall_traffic_logging() {
     ntm_rollback_nginx_conf || return 1
   else
     ntm_warn "No backup found — attempting directive cleanup"
-    ntm_remove_traffic_directives
   fi
+  ntm_remove_traffic_directives
 
   if ! ntm_nginx_test; then
     ntm_error "nginx -t failed after uninstall changes"

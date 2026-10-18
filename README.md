@@ -48,7 +48,7 @@ How to capture your own: [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)
 
 ## Project overview
 
-Configures a dedicated `log_format traffic`, writes structured access logs, and ships an interactive menu plus a non-interactive CLI for cron.
+Configures a dedicated `log_format ntm_traffic`, writes structured access logs, and ships an interactive menu plus a non-interactive CLI for cron.
 
 Features live as **plugins** under [`plugins/`](plugins/). The core stays small; ISP/ASN (Irancell / MCI / Other) and more ship as drop-ins.
 
@@ -114,10 +114,10 @@ What the installer does:
 
 1. Detects the nginx binary and `nginx.conf`
 2. Backs up the config under `/var/backups/nginx-traffic-monitor/`
-3. Ensures `log_format traffic '...'`
-4. Appends `access_log /var/log/nginx/traffic.log traffic;` only when missing (no duplicates)
-5. Creates the log file with proper ownership
-6. Runs `nginx -t` — on failure, restores the backup
+3. Ensures `log_format ntm_traffic '...'`
+4. Writes drop-in `conf.d/00-nginx-traffic-monitor.conf` with `log_format ntm_traffic` (if needed) then `access_log`
+5. Patches active vhosts that already define their own `access_log` (with per-file backup)
+6. Runs `nginx -t` — on failure, full rollback (main + drop-in + vhosts)
 7. Reloads nginx on success
 
 Verify only:
@@ -129,7 +129,7 @@ sudo ./install.sh --verify-only
 Confirm traffic is being written (after a real HTTP hit):
 
 ```bash
-sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'
+sudo nginx -T 2>/dev/null | grep -E 'log_format ntm_traffic|traffic.log'
 sudo tail -f /var/log/nginx/traffic.log
 ```
 
@@ -253,8 +253,8 @@ Highlights:
 ## Log format
 
 ```nginx
-log_format traffic '$time_iso8601 $remote_addr $host $status $request_method "$request_uri" $body_bytes_sent';
-access_log /var/log/nginx/traffic.log traffic;
+log_format ntm_traffic '$time_iso8601 $remote_addr $host $status $request_method "$request_uri" $body_bytes_sent';
+access_log /var/log/nginx/traffic.log ntm_traffic;
 ```
 
 ---
@@ -264,6 +264,7 @@ access_log /var/log/nginx/traffic.log traffic;
 Defaults live in [`config/defaults.conf`](config/defaults.conf):
 
 - `NTM_TRAFFIC_LOG` — default `/var/log/nginx/traffic.log`
+- `NTM_LOG_FORMAT_NAME` — default `ntm_traffic`
 - `NTM_BACKUP_DIR` — default `/var/backups/nginx-traffic-monitor`
 - `NTM_TOP_N` — default `20`
 - `NTM_EXPORT_DIR` — default `/tmp/nginx-traffic-monitor`
@@ -308,8 +309,8 @@ Yes. Pure HTML/CSS, no CDN JavaScript.
 | `nginx binary not found` | Install nginx or set `NTM_NGINX_BIN` |
 | `nginx.conf not found` | Installer searches `-V`/`-t`/common paths/`find` under `/etc` `/usr/local` `/opt` `/www`. If still missing, set `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | `nginx -t` failed during install | Backup restored automatically; inspect the error from `nginx -t` |
-| `unknown log format "traffic"` | Older installer put `access_log` before `include conf.d`. Update: `git pull && sudo ./install.sh`. Drop-in `conf.d/00-nginx-traffic-monitor.conf` must define `log_format` **then** `access_log`; main `nginx.conf` must not have an early `access_log ... traffic` before that include. |
-| Empty reports / empty `traffic.log` | Logging not attached or not writable. Re-run `sudo ./install.sh` (drop-in `conf.d/00-nginx-traffic-monitor.conf` with `log_format` + `access_log`, plus per-server patches). Diagnose: `sudo wc -l /var/log/nginx/traffic.log`; `sudo nginx -T 2>/dev/null \| grep -E 'log_format traffic\|traffic.log'`; `sudo tail -f /var/log/nginx/traffic.log` while hitting the site; `sudo tail -n 50 /var/log/nginx/error.log`. |
+| `unknown log format "traffic"` / `duplicate "log_format" name "traffic"` | Update to latest: `git pull && sudo ./install.sh`. Current installer uses unique format `ntm_traffic`, writes drop-in conditionally, and fully rolls back on failure. Leftover old `log_format traffic` is left alone and does not conflict. |
+| Empty reports / empty `traffic.log` | Logging not attached or not writable. Re-run `sudo ./install.sh` (drop-in `conf.d/00-nginx-traffic-monitor.conf` with `log_format` + `access_log`, plus per-server patches). Diagnose: `sudo wc -l /var/log/nginx/traffic.log`; `sudo nginx -T 2>/dev/null \| grep -E 'log_format ntm_traffic\|traffic.log'`; `sudo tail -f /var/log/nginx/traffic.log` while hitting the site; `sudo tail -n 50 /var/log/nginx/error.log`. |
 | Permission denied on log | Run with sudo or grant read on `/var/log/nginx/traffic.log` |
 | ISP all “other” | Update `*.cidr` seeds; verify client IPs are not CDN egress |
 | Plugin missing from menu | `./traffic-monitor.sh --plugins list` and enable it |
@@ -418,7 +419,7 @@ cd nginx-traffic-monitor && git pull && sudo ./install.sh --verify-only
 
 ## معرفی پروژه
 
-`log_format traffic` را روی Nginx تنظیم می‌کند، لاگ ساخت‌یافته می‌نویسد و منوی عملیاتی + CLI (مناسب cron) ارائه می‌دهد.
+`log_format ntm_traffic` را روی Nginx تنظیم می‌کند، لاگ ساخت‌یافته می‌نویسد و منوی عملیاتی + CLI (مناسب cron) ارائه می‌دهد.
 
 قابلیت‌ها به‌صورت **پلاگین** در [`plugins/`](plugins/) هستند؛ هسته کوچک می‌ماند.
 
@@ -484,10 +485,10 @@ sudo ./install.sh
 
 1. پیدا کردن باینری nginx و `nginx.conf`
 2. بکاپ کانفیگ در `/var/backups/nginx-traffic-monitor/`
-3. اطمینان از وجود `log_format traffic`
-4. افزودن `access_log` فقط اگر از قبل نباشد (بدون duplicate)
+3. نوشتن drop-in با `log_format ntm_traffic` (در صورت نیاز) سپس `access_log`
+4. پچ vhostهایی که خودشان access_log دارند (با بکاپ per-file)
 5. ساخت فایل لاگ با مالکیت مناسب
-6. اجرای `nginx -t` — در صورت خطا، بازگردانی بکاپ
+6. اجرای `nginx -t` — در صورت خطا، rollback کامل
 7. reload کردن nginx در صورت موفقیت
 
 فقط بررسی نصب:
@@ -499,7 +500,7 @@ sudo ./install.sh --verify-only
 اطمینان از ثبت ترافیک (بعد از یک درخواست واقعی HTTP):
 
 ```bash
-sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'
+sudo nginx -T 2>/dev/null | grep -E 'log_format ntm_traffic|traffic.log'
 sudo tail -f /var/log/nginx/traffic.log
 ```
 
@@ -619,8 +620,8 @@ sudo ./traffic-monitor.sh
 ## فرمت لاگ
 
 ```nginx
-log_format traffic '$time_iso8601 $remote_addr $host $status $request_method "$request_uri" $body_bytes_sent';
-access_log /var/log/nginx/traffic.log traffic;
+log_format ntm_traffic '$time_iso8601 $remote_addr $host $status $request_method "$request_uri" $body_bytes_sent';
+access_log /var/log/nginx/traffic.log ntm_traffic;
 ```
 
 ---
@@ -674,8 +675,8 @@ CIDRها را در `plugins/43-isp-asn/data/` بگذارید و matcher را گ�
 | `nginx binary not found` | nginx را نصب کنید یا `NTM_NGINX_BIN` را تنظیم کنید |
 | `nginx.conf not found` | installer از `-V`/`-t`/مسیرهای رایج/`find` زیر `/etc` `/usr/local` `/opt` `/www` جستجو می‌کند. اگر پیدا نشد: `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | شکست `nginx -t` هنگام نصب | بکاپ خودکار بازگردانی شده؛ خروجی `nginx -t` را ببینید |
-| `unknown log format "traffic"` | نسخهٔ قدیمی `access_log` را قبل از `include conf.d` می‌گذاشت. به‌روز کنید: `git pull && sudo ./install.sh`. در drop-in باید اول `log_format` بعد `access_log` باشد؛ در `nginx.conf` نباید `access_log ... traffic` زودرس قبل از include باشد. |
-| گزارش خالی / `traffic.log` خالی | لاگ وصل نشده یا قابل نوشتن نیست. دوباره `sudo ./install.sh` (drop-in با log_format + access_log). تشخیص: `sudo wc -l /var/log/nginx/traffic.log`؛ `sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'`؛ هنگام hit: `sudo tail -f /var/log/nginx/traffic.log`؛ `sudo tail -n 50 /var/log/nginx/error.log` |
+| `unknown log format "traffic"` / `duplicate "log_format" name "traffic"` | به‌روز کنید: `git pull && sudo ./install.sh`. نسخهٔ فعلی از فرمت یکتای `ntm_traffic` استفاده می‌کند، drop-in را شرطی می‌نویسد و در شکست rollback کامل می‌کند. leftover قدیمی `traffic` معمولاً conflict نمی‌دهد. |
+| گزارش خالی / `traffic.log` خالی | لاگ وصل نشده یا قابل نوشتن نیست. دوباره `sudo ./install.sh` (drop-in با log_format + access_log). تشخیص: `sudo wc -l /var/log/nginx/traffic.log`؛ `sudo nginx -T 2>/dev/null | grep -E 'log_format ntm_traffic|traffic.log'`؛ هنگام hit: `sudo tail -f /var/log/nginx/traffic.log`؛ `sudo tail -n 50 /var/log/nginx/error.log` |
 | Permission denied روی لاگ | با sudo اجرا کنید یا دسترسی خواندن بدهید |
 | همه ISPها «سایر» | فایل‌های `*.cidr` را به‌روز کنید؛ IP ممکن است CDN باشد |
 | پلاگین در منو نیست | `./traffic-monitor.sh --plugins list` و enable کنید |
