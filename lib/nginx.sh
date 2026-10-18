@@ -215,10 +215,16 @@ ntm_nginx_reload() {
 
 # Ensure log_format traffic exists in http {} block of main conf
 # Supports both `http {` and aaPanel-style `http` + `{` on next line.
+# Prefer drop-in (ntm_ensure_dropin_conf) — only mutate main conf when no drop-in dir exists.
 ntm_ensure_log_format() {
   local conf="$1"
   local name="${NTM_LOG_FORMAT_NAME}"
   local body="${NTM_LOG_FORMAT_BODY}"
+
+  if ntm_resolve_dropin_path >/dev/null 2>&1; then
+    ntm_info "Drop-in available — skipping log_format insert into main conf"
+    return 0
+  fi
 
   if grep -Eq "log_format[[:space:]]+${name}[[:space:]]+" "$conf" 2>/dev/null; then
     ntm_info "log_format ${name} already present in $conf"
@@ -261,80 +267,86 @@ ntm_ensure_log_format() {
   ntm_ok "Inserted log_format ${name} into $conf"
 }
 
-# Prefer a drop-in file included by http {} (conf.d, http.d, or aaPanel vhost dir)
-ntm_ensure_dropin_conf() {
-  local main conf_dir dropin name body
-  main="$(ntm_detect_nginx_conf)" || return 1
+# Resolve preferred drop-in path (included inside http {}), or empty if none
+ntm_resolve_dropin_path() {
+  local main conf_dir
+  main="$(ntm_detect_nginx_conf 2>/dev/null)" || return 1
   conf_dir="$(dirname "$main")"
+  if [ -d /www/server/panel/vhost/nginx ]; then
+    printf '%s\n' "/www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf"
+  elif [ -d "${conf_dir}/conf.d" ]; then
+    printf '%s\n' "${conf_dir}/conf.d/00-nginx-traffic-monitor.conf"
+  elif [ -d "${conf_dir}/http.d" ]; then
+    printf '%s\n' "${conf_dir}/http.d/00-nginx-traffic-monitor.conf"
+  else
+    return 1
+  fi
+}
+
+# Prefer a drop-in file included by http {} (conf.d, http.d, or aaPanel vhost dir).
+# Writes log_format THEN access_log in the same file so directive order is always valid
+# (never place access_log before include conf.d/*.conf in main nginx.conf).
+ntm_ensure_dropin_conf() {
+  local dropin name body log_path
   name="${NTM_LOG_FORMAT_NAME}"
   body="${NTM_LOG_FORMAT_BODY}"
+  log_path="${NTM_TRAFFIC_LOG}"
 
-  dropin=""
-  # aaPanel / BT: vhost nginx dir is included inside http {}
-  if [ -d /www/server/panel/vhost/nginx ]; then
-    dropin="/www/server/panel/vhost/nginx/0.ntm_traffic_log_format.conf"
-  elif [ -d "${conf_dir}/conf.d" ]; then
-    dropin="${conf_dir}/conf.d/00-nginx-traffic-monitor.conf"
-  elif [ -d "${conf_dir}/http.d" ]; then
-    dropin="${conf_dir}/http.d/00-nginx-traffic-monitor.conf"
-  fi
-
+  dropin="$(ntm_resolve_dropin_path 2>/dev/null || true)"
   if [ -z "$dropin" ]; then
     ntm_info "No drop-in directory found — will use main nginx.conf"
-    return 0
+    return 1
   fi
 
   cat >"$dropin" <<EOF
 # Managed by Nginx Traffic Monitor — do not edit by hand
 log_format ${name} ${body};
+access_log ${log_path} ${name};
 EOF
   ntm_ok "Wrote drop-in config: $dropin"
   mkdir -p "$NTM_BACKUP_DIR" 2>/dev/null || true
   printf '%s\n' "$dropin" >"${NTM_BACKUP_DIR}/DROPIN" 2>/dev/null || true
+  return 0
 }
 
-# Insert access_log at http {} level (safety net). Supports multiline http {
+# Insert access_log in main conf ONLY after an existing log_format line (never right after http {).
+# Used when no drop-in directory is available.
 ntm_ensure_http_access_log() {
   local conf="$1"
   local log_path="${NTM_TRAFFIC_LOG}"
   local name="${NTM_LOG_FORMAT_NAME}"
 
-  # On aaPanel, http-level "access_log off;" is common — still add our line after log_format if possible
   if grep -Eq "access_log[[:space:]]+${log_path}([[:space:]]|;)" "$conf"; then
     ntm_info "http-level access_log already present in main conf"
     return 0
   fi
 
-  # Skip mutating main conf when aaPanel drop-in handles format and sites get per-server logs
-  if [ -d /www/server/panel/vhost/nginx ]; then
-    ntm_info "aaPanel detected — skipping http-level access_log in main conf (using per-vhost logs)"
+  # Drop-in already defines format + access_log — do not touch main conf
+  if ntm_resolve_dropin_path >/dev/null 2>&1; then
+    ntm_info "Drop-in available — skipping http-level access_log in main conf"
     return 0
+  fi
+
+  if ! grep -Eq "log_format[[:space:]]+${name}[[:space:]]+" "$conf" 2>/dev/null; then
+    ntm_warn "Cannot insert http-level access_log: log_format ${name} missing in $conf"
+    return 1
   fi
 
   local tmp
   tmp="$(mktemp 2>/dev/null || echo "/tmp/ntm-http-access.$$")"
   awk -v log_path="$log_path" -v name="$name" '
-    BEGIN { inserted=0; pending=0 }
+    BEGIN { inserted=0 }
     {
-      if (!inserted && $0 ~ /^[[:space:]]*http[[:space:]]*$/) { print; pending=1; next }
-      if (!inserted && pending && $0 ~ /^[[:space:]]*\{/) {
-        print
-        print "        access_log " log_path " " name ";"
-        print "        # http-level access_log added by Nginx Traffic Monitor"
-        inserted=1; pending=0; next
-      }
-      pending=0
       print
       if (!inserted && $0 ~ ("log_format[[:space:]]+" name "[[:space:]]+")) {
         print "    access_log " log_path " " name ";"
         print "    # http-level access_log added by Nginx Traffic Monitor"
         inserted=1
-        next
       }
-      if (!inserted && $0 ~ /^[[:space:]]*http[[:space:]]*\{/) {
-        print "    access_log " log_path " " name ";"
-        print "    # http-level access_log added by Nginx Traffic Monitor"
-        inserted=1
+    }
+    END {
+      if (!inserted) {
+        print "# WARNING: log_format found but access_log not inserted" > "/dev/stderr"
       }
     }
   ' "$conf" >"$tmp"
@@ -411,7 +423,10 @@ ntm_patch_file_access_log() {
     }
   ' "$f" >"$tmp"
 
-  if [ "$(grep -c "access_log ${log_path} ${name}" "$tmp" 2>/dev/null || echo 0)" -eq 0 ]; then
+  local patched_count=0
+  patched_count="$(grep -c "access_log ${log_path} ${name}" "$tmp" 2>/dev/null || true)"
+  patched_count="${patched_count:-0}"
+  if [ "$patched_count" -eq 0 ]; then
     # Fallback: before last lone } in file
     awk -v log_path="$log_path" -v name="$name" '
       { lines[++n]=$0 }
@@ -438,13 +453,18 @@ ntm_patch_file_access_log() {
 
 ntm_ensure_access_logs() {
   local f modified=0 seen=""
-  local main
+  local main used_dropin=0
 
   main="$(ntm_detect_nginx_conf)" || return 1
   mkdir -p "$NTM_BACKUP_DIR" 2>/dev/null || true
-  ntm_ensure_dropin_conf || true
-  ntm_ensure_log_format "$main" || true
-  ntm_ensure_http_access_log "$main" || true
+
+  if ntm_ensure_dropin_conf; then
+    used_dropin=1
+    ntm_info "Using drop-in for log_format + http access_log (skip main nginx.conf mutations)"
+  else
+    ntm_ensure_log_format "$main" || true
+    ntm_ensure_http_access_log "$main" || true
+  fi
 
   while IFS= read -r f; do
     [ -z "$f" ] && continue
@@ -459,11 +479,13 @@ ntm_ensure_access_logs() {
       continue
     fi
 
-    local before after
-    before="$(grep -c "access_log[[:space:]]\+${NTM_TRAFFIC_LOG}" "$f" 2>/dev/null || echo 0)"
+    local before=0 after=0
+    before="$(grep -c "access_log[[:space:]]\+${NTM_TRAFFIC_LOG}" "$f" 2>/dev/null || true)"
+    before="${before:-0}"
     ntm_patch_file_access_log "$f"
-    after="$(grep -c "access_log[[:space:]]\+${NTM_TRAFFIC_LOG}" "$f" 2>/dev/null || echo 0)"
-    if [ "${after:-0}" -gt "${before:-0}" ]; then
+    after="$(grep -c "access_log[[:space:]]\+${NTM_TRAFFIC_LOG}" "$f" 2>/dev/null || true)"
+    after="${after:-0}"
+    if [ "$after" -gt "$before" ]; then
       modified=$((modified + 1))
     fi
   done <<EOF
@@ -471,7 +493,11 @@ $(ntm_collect_site_files | sort -u)
 EOF
 
   if [ "$modified" -eq 0 ]; then
-    ntm_info "No per-server access_log file changes (may already be configured)"
+    if [ "$used_dropin" -eq 1 ]; then
+      ntm_info "No per-server access_log file changes (http-level covered by drop-in)"
+    else
+      ntm_info "No per-server access_log file changes (may already be configured)"
+    fi
   else
     ntm_ok "Updated access_log in ${modified} config file(s)"
   fi

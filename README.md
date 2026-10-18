@@ -308,7 +308,8 @@ Yes. Pure HTML/CSS, no CDN JavaScript.
 | `nginx binary not found` | Install nginx or set `NTM_NGINX_BIN` |
 | `nginx.conf not found` | Installer searches `-V`/`-t`/common paths/`find` under `/etc` `/usr/local` `/opt` `/www`. If still missing, set `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | `nginx -t` failed during install | Backup restored automatically; inspect the error from `nginx -t` |
-| Empty reports / empty `traffic.log` | Logging not attached or not writable. Re-run `sudo ./install.sh` (drop-in `conf.d/00-nginx-traffic-monitor.conf` + `access_log` at end of every `server{}`). Diagnose: `sudo wc -l /var/log/nginx/traffic.log`; `sudo nginx -T 2>/dev/null \| grep -E 'log_format traffic\|traffic.log'`; `sudo tail -f /var/log/nginx/traffic.log` while hitting the site; `sudo tail -n 50 /var/log/nginx/error.log`. |
+| `unknown log format "traffic"` | Older installer put `access_log` before `include conf.d`. Update: `git pull && sudo ./install.sh`. Drop-in `conf.d/00-nginx-traffic-monitor.conf` must define `log_format` **then** `access_log`; main `nginx.conf` must not have an early `access_log ... traffic` before that include. |
+| Empty reports / empty `traffic.log` | Logging not attached or not writable. Re-run `sudo ./install.sh` (drop-in `conf.d/00-nginx-traffic-monitor.conf` with `log_format` + `access_log`, plus per-server patches). Diagnose: `sudo wc -l /var/log/nginx/traffic.log`; `sudo nginx -T 2>/dev/null \| grep -E 'log_format traffic\|traffic.log'`; `sudo tail -f /var/log/nginx/traffic.log` while hitting the site; `sudo tail -n 50 /var/log/nginx/error.log`. |
 | Permission denied on log | Run with sudo or grant read on `/var/log/nginx/traffic.log` |
 | ISP all “other” | Update `*.cidr` seeds; verify client IPs are not CDN egress |
 | Plugin missing from menu | `./traffic-monitor.sh --plugins list` and enable it |
@@ -673,7 +674,8 @@ CIDRها را در `plugins/43-isp-asn/data/` بگذارید و matcher را گ�
 | `nginx binary not found` | nginx را نصب کنید یا `NTM_NGINX_BIN` را تنظیم کنید |
 | `nginx.conf not found` | installer از `-V`/`-t`/مسیرهای رایج/`find` زیر `/etc` `/usr/local` `/opt` `/www` جستجو می‌کند. اگر پیدا نشد: `NTM_NGINX_CONF=/path/to/nginx.conf` |
 | شکست `nginx -t` هنگام نصب | بکاپ خودکار بازگردانی شده؛ خروجی `nginx -t` را ببینید |
-| گزارش خالی / `traffic.log` خالی | لاگ وصل نشده یا قابل نوشتن نیست. دوباره `sudo ./install.sh` (drop-in در conf.d + access_log انتهای هر server{}). تشخیص: `sudo wc -l /var/log/nginx/traffic.log`؛ `sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'`؛ هنگام hit: `sudo tail -f /var/log/nginx/traffic.log`؛ `sudo tail -n 50 /var/log/nginx/error.log` |
+| `unknown log format "traffic"` | نسخهٔ قدیمی `access_log` را قبل از `include conf.d` می‌گذاشت. به‌روز کنید: `git pull && sudo ./install.sh`. در drop-in باید اول `log_format` بعد `access_log` باشد؛ در `nginx.conf` نباید `access_log ... traffic` زودرس قبل از include باشد. |
+| گزارش خالی / `traffic.log` خالی | لاگ وصل نشده یا قابل نوشتن نیست. دوباره `sudo ./install.sh` (drop-in با log_format + access_log). تشخیص: `sudo wc -l /var/log/nginx/traffic.log`؛ `sudo nginx -T 2>/dev/null | grep -E 'log_format traffic|traffic.log'`؛ هنگام hit: `sudo tail -f /var/log/nginx/traffic.log`؛ `sudo tail -n 50 /var/log/nginx/error.log` |
 | Permission denied روی لاگ | با sudo اجرا کنید یا دسترسی خواندن بدهید |
 | همه ISPها «سایر» | فایل‌های `*.cidr` را به‌روز کنید؛ IP ممکن است CDN باشد |
 | پلاگین در منو نیست | `./traffic-monitor.sh --plugins list` و enable کنید |
